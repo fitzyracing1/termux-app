@@ -27,12 +27,14 @@ import java.io.BufferedReader;
 import java.io.ByteArrayInputStream;
 import java.io.File;
 import java.io.FileOutputStream;
+import java.io.InputStream;
 import java.io.InputStreamReader;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.zip.ZipEntry;
 import java.util.zip.ZipInputStream;
 
+import static com.termux.shared.termux.TermuxConstants.TERMUX_BIN_PREFIX_DIR;
 import static com.termux.shared.termux.TermuxConstants.TERMUX_PREFIX_DIR;
 import static com.termux.shared.termux.TermuxConstants.TERMUX_PREFIX_DIR_PATH;
 import static com.termux.shared.termux.TermuxConstants.TERMUX_STAGING_PREFIX_DIR;
@@ -107,6 +109,7 @@ final class TermuxInstaller {
             if (TermuxFileUtils.isTermuxPrefixDirectoryEmpty()) {
                 Logger.logInfo(LOG_TAG, "The termux prefix directory \"" + TERMUX_PREFIX_DIR_PATH + "\" exists but is empty or only contains specific unimportant files.");
             } else {
+                installShippedGrokCommand(activity);
                 whenDone.run();
                 return;
             }
@@ -220,6 +223,8 @@ final class TermuxInstaller {
 
                     // Recreate env file since termux prefix was wiped earlier
                     TermuxShellEnvironment.writeEnvironmentToFile(activity);
+
+                    installShippedGrokCommand(activity);
 
                     activity.runOnUiThread(whenDone);
 
@@ -369,6 +374,35 @@ final class TermuxInstaller {
                 }
             }
         }.start();
+    }
+
+    /**
+     * Install or refresh the built-in {@code grok} wrapper in {@code $PREFIX/bin}.
+     * The wrapper fetches the official xAI Grok Build and runs it under a
+     * termux-chroot environment. Failures are logged and do not block startup.
+     */
+    private static void installShippedGrokCommand(Context context) {
+        File dest = new File(TERMUX_BIN_PREFIX_DIR, "grok");
+        try {
+            Error error = ensureDirectoryExists(dest.getParentFile());
+            if (error != null) {
+                Logger.logError(LOG_TAG, "Failed to create " + dest.getParent() + ": " + Error.getMinimalErrorString(error));
+                return;
+            }
+            try (InputStream in = context.getResources().openRawResource(R.raw.grok);
+                 FileOutputStream out = new FileOutputStream(dest)) {
+                byte[] buffer = new byte[8096];
+                int readBytes;
+                while ((readBytes = in.read(buffer)) != -1) {
+                    out.write(buffer, 0, readBytes);
+                }
+            }
+            //noinspection OctalInteger
+            Os.chmod(dest.getAbsolutePath(), 0700);
+            Logger.logInfo(LOG_TAG, "Installed built-in grok command at \"" + dest.getAbsolutePath() + "\".");
+        } catch (Exception e) {
+            Logger.logError(LOG_TAG, "Failed to install built-in grok command: " + e.getMessage());
+        }
     }
 
     private static Error ensureDirectoryExists(File directory) {
